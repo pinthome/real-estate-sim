@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>不動産投資 収益シミュレーター</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <h1>不動産投資 収益シミュレーター</h1>
+    <p>年次キャッシュフロー・税引後の「本当の儲け」・出口戦略までを35年分試算します</p>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="input" class="active">入力</button>
+    <button data-tab="result">試算結果</button>
+    <button data-tab="exit">出口戦略</button>
+    <button data-tab="sens">感度分析</button>
+    <button data-tab="costs">諸費用計算</button>
+  </nav>
+
+  <!-- ============ 入力 ============ -->
+  <section class="tab-panel active" id="panel-input">
+    <div class="toolbar">
+      <div class="seg" id="taxModeSeg">
+        <button data-mode="personal" class="active">個人</button>
+        <button data-mode="corporate">法人</button>
+      </div>
+      <button class="btn primary" id="runBtn">試算する</button>
+      <button class="btn" id="resetBtn">初期値に戻す</button>
+    </div>
+
+    <div class="card">
+      <h2>物件<span class="sub">価格・構造・築年数</span></h2>
+      <div class="grid">
+        <div class="field"><label>物件価格<span class="unit">円（税込）</span></label><input id="price" type="text" inputmode="numeric"></div>
+        <div class="field"><label>うち建物価格<span class="unit">円</span></label><input id="buildingPrice" type="text" inputmode="numeric"><div class="hint">残りが土地分になります</div></div>
+        <div class="field"><label>築年数<span class="unit">年</span></label><input id="age" type="text" inputmode="numeric"></div>
+        <div class="field"><label>構造（法定耐用年数）</label>
+          <select id="structure">
+            <option value="47">RC造（47年）</option>
+            <option value="34">重量鉄骨造（34年）</option>
+            <option value="27">軽量鉄骨造 骨格材4mm以下（27年）</option>
+            <option value="19">軽量鉄骨造 骨格材3mm以下（19年）</option>
+            <option value="22">木造（22年）</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>資金計画<span class="sub">借入・自己資金</span></h2>
+      <div class="grid">
+        <div class="field"><label>借入金額<span class="unit">円</span></label><input id="loanAmount" type="text" inputmode="numeric"></div>
+        <div class="field"><label>借入期間<span class="unit">年</span></label><input id="loanYears" type="text" inputmode="decimal"><div class="hint">小数可（29.2年=350ヵ月など）</div></div>
+        <div class="field"><label>借入金利<span class="unit">%（年・元利均等）</span></label><input id="loanRate" type="text" inputmode="decimal"></div>
+        <div class="field"><label>取得諸費用（取得価額算入）<span class="unit">円</span></label><input id="costsAcq" type="text" inputmode="numeric"><div class="hint">仲介手数料・固都税精算金など</div></div>
+        <div class="field"><label>取得諸費用（初年度費用）<span class="unit">円</span></label><input id="costsExp" type="text" inputmode="numeric"><div class="hint">登免税・取得税・印紙・司法書士など</div></div>
+        <div class="field"><label>&nbsp;</label><button class="btn" id="estimateCostsBtn">諸費用を自動概算で入力</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>収入<span class="sub">賃料・入退去サイクル</span></h2>
+      <div class="grid">
+        <div class="field"><label>月額家賃<span class="unit">円（共益費込）</span></label><input id="rentMonthly" type="text" inputmode="numeric"></div>
+        <div class="field"><label>礼金<span class="unit">円/入居1回</span></label><input id="keyMoney" type="text" inputmode="numeric"></div>
+        <div class="field"><label>更新料<span class="unit">円/回（2年更新）</span></label><input id="renewalFee" type="text" inputmode="numeric"></div>
+        <div class="field"><label>想定入居期間<span class="unit">ヵ月</span></label><input id="tenancyMonths" type="text" inputmode="numeric"></div>
+        <div class="field"><label>想定空室期間<span class="unit">ヵ月</span></label><input id="vacancyMonths" type="text" inputmode="numeric"></div>
+        <div class="field"><label>家賃下落率<span class="unit">%/年</span></label><input id="rentDeclineRate" type="text" inputmode="decimal"><div class="hint">2年目から毎年、当初家賃基準で下落</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>支出<span class="sub">運営費</span></h2>
+      <div class="grid">
+        <div class="field"><label>固定資産税・都市計画税・保険<span class="unit">円/年</span></label><input id="fixedCostTax" type="text" inputmode="numeric"></div>
+        <div class="field"><label>管理費・修繕積立金・集金代行等<span class="unit">円/月</span></label><input id="fixedCostMgmt" type="text" inputmode="numeric"></div>
+        <div class="field"><label>入居者入替コスト<span class="unit">円/回</span></label><input id="turnoverCost" type="text" inputmode="numeric"><div class="hint">仲介手数料・広告料・原状回復の合計</div></div>
+        <div class="field"><label>修繕費<span class="unit">円/年（平均）</span></label><input id="repairAnnual" type="text" inputmode="numeric"><div class="hint">エアコン・給湯器等の交換費を年割り</div></div>
+      </div>
+    </div>
+
+    <div class="card" id="personalCard">
+      <h2>税金（個人）<span class="sub">損益通算の基礎</span></h2>
+      <div class="grid">
+        <div class="field"><label>給与収入<span class="unit">円/年</span></label><input id="salary" type="text" inputmode="numeric"></div>
+        <div class="field"><label>所得控除<span class="unit">円（空欄で自動概算）</span></label><input id="deductions" type="text" inputmode="numeric" placeholder="自動：社保15%＋基礎控除58万"></div>
+      </div>
+    </div>
+
+    <div class="card" id="corporateCard" style="display:none">
+      <h2>税金（法人）<span class="sub">中小法人・標準税率の実効税率で計算</span></h2>
+      <div class="grid">
+        <div class="field"><label>法人住民税 均等割<span class="unit">円/年</span></label><input id="corpEqualization" type="text" inputmode="numeric"></div>
+      </div>
+      <p class="notes">赤字年は均等割のみ課税し、欠損金は10年間繰り越して翌期以降の所得から控除します。売却益は賃貸損益と合算して課税されます（法人に分離課税はありません）。</p>
+    </div>
+
+    <div class="card">
+      <h2>売却<span class="sub">出口条件</span></h2>
+      <div class="grid">
+        <div class="field"><label>想定売却価格<span class="unit">円（現時点）</span></label><input id="salePrice" type="text" inputmode="numeric"></div>
+        <div class="field"><label>売却価格の下落率<span class="unit">%/年</span></label><input id="salePriceDeclineRate" type="text" inputmode="decimal"><div class="hint">保有年数に応じて売却価格が逓減</div></div>
+      </div>
+      <p class="notes">売却時の仲介手数料（3%＋6万円・税込）を譲渡費用として自動計上します。個人は7年目以降の売却で長期譲渡（20.315%）、6年目までは短期譲渡（39.63%）です（年初取得前提）。</p>
+    </div>
+  </section>
+
+  <!-- ============ 試算結果 ============ -->
+  <section class="tab-panel" id="panel-result">
+    <div class="kpis" id="kpiBox"></div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>税引後キャッシュフロー<span class="sub">棒＝単年、線＝累積（自己資金投下後）</span></h2>
+      <div class="chart-box" id="cfChart"></div>
+      <details class="table-view"><summary>数表を表示</summary><div class="table-scroll" id="cfTable"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>損益（不動産所得）と内訳<span class="sub">棒＝単年損益、線＝減価償却・元金返済</span></h2>
+      <div class="chart-box" id="plChart"></div>
+      <p class="notes">減価償却（青緑の線）が元金返済（紫の線）を下回る年が「デッドクロス」です。帳簿上は黒字でも手残りが細ります。</p>
+    </div>
+
+    <div class="card notes" id="assumptionNotes"></div>
+  </section>
+
+  <!-- ============ 出口戦略 ============ -->
+  <section class="tab-panel" id="panel-exit">
+    <div class="kpis" id="exitKpiBox"></div>
+    <div class="card" style="margin-top:18px">
+      <h2>売却年別のトータル利益<span class="sub">累積税引後CF＋売却手取り−自己資金</span></h2>
+      <div class="chart-box" id="exitChart"></div>
+      <details class="table-view"><summary>数表を表示</summary><div class="table-scroll" id="exitTable"></div></details>
+    </div>
+    <div class="card">
+      <h2>売却年別IRR<span class="sub">自己資金に対する内部収益率</span></h2>
+      <div class="chart-box" id="irrChart"></div>
+    </div>
+  </section>
+
+  <!-- ============ 感度分析 ============ -->
+  <section class="tab-panel" id="panel-sens">
+    <div class="card">
+      <h2>前提を動かして耐性を見る<span class="sub">基準シナリオとの比較</span></h2>
+      <div class="sliders">
+        <div class="slider-field">
+          <label>借入金利の上昇 <b id="sensRateVal">+0.0%</b></label>
+          <input type="range" id="sensRate" min="0" max="3" step="0.1" value="0">
+        </div>
+        <div class="slider-field">
+          <label>空室期間の増加 <b id="sensVacVal">+0ヵ月</b></label>
+          <input type="range" id="sensVac" min="0" max="12" step="1" value="0">
+        </div>
+        <div class="slider-field">
+          <label>家賃下落率の上乗せ <b id="sensRentVal">+0.0%</b></label>
+          <input type="range" id="sensRent" min="0" max="3" step="0.1" value="0">
+        </div>
+        <div class="slider-field">
+          <label>売却価格の変動 <b id="sensSaleVal">±0%</b></label>
+          <input type="range" id="sensSale" min="-30" max="30" step="5" value="0">
+        </div>
+      </div>
+    </div>
+    <div class="kpis" id="sensKpiBox"></div>
+    <div class="card" style="margin-top:18px">
+      <h2>売却年別トータル利益の変化</h2>
+      <div class="chart-box" id="sensChart"></div>
+    </div>
+  </section>
+
+  <!-- ============ 諸費用計算 ============ -->
+  <section class="tab-panel" id="panel-costs">
+    <div class="card">
+      <h2>取得時諸費用クイック計算<span class="sub">概算・軽減税率対応</span></h2>
+      <div class="grid">
+        <div class="field"><label>物件価格<span class="unit">円</span></label><input id="qcPrice" type="text" inputmode="numeric"></div>
+        <div class="field"><label>固定資産税評価額（土地）<span class="unit">円</span></label><input id="qcLand" type="text" inputmode="numeric"><div class="hint">不明なら土地価格の7割目安</div></div>
+        <div class="field"><label>固定資産税評価額（建物）<span class="unit">円</span></label><input id="qcBldg" type="text" inputmode="numeric"><div class="hint">不明なら建物価格の5〜6割目安</div></div>
+        <div class="field"><label>借入金額<span class="unit">円</span></label><input id="qcLoan" type="text" inputmode="numeric"></div>
+        <div class="field"><label>建物の用途</label>
+          <select id="qcResidential"><option value="true">住宅（取得税3%）</option><option value="false">非住宅（取得税4%）</option></select>
+        </div>
+        <div class="field"><label>土地の登録免許税率</label>
+          <select id="qcLandReg"><option value="0.015">軽減 1.5%</option><option value="0.02">本則 2.0%</option></select>
+          <div class="hint">軽減措置の延長状況をご確認ください</div>
+        </div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" id="qcBtn">計算する</button></div>
+      <div class="table-scroll" id="qcResult" style="margin-top:16px"></div>
+      <p class="notes">仲介手数料は「（価格×3%＋6万円）×消費税」の速算（800万円以下は低廉物件特例の上限30万円＋税）。印紙税（売買）は軽減税率（2027年3月31日まで）、印紙税（金銭消費貸借）は本則です。不動産取得税の土地は課税標準1/2の特例を適用しています。実額は見積・評価証明でご確認ください。</p>
+    </div>
+  </section>
+
+  <footer class="notes" style="margin-top:8px">
+    本シミュレーションは概算です。税制は2026年時点の一般的な取扱い（復興特別所得税・住民税所得割10%込み、給与所得控除は令和7年度改正、中古耐用年数は簡便法）を前提としており、個別の税務判断は税理士にご確認ください。
+  </footer>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
