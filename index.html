@@ -35,6 +35,7 @@
     <div class="card">
       <h2>物件<span class="sub">価格・構造・築年数</span></h2>
       <div class="grid">
+        <div class="field"><label>物件名称<span class="unit">提案書に表示</span></label><input id="propertyName" type="text" placeholder="例：○○マンション 101号室"></div>
         <div class="field"><label>物件価格<span class="unit">円（税込）</span></label><input id="price" type="text" inputmode="numeric"></div>
         <div class="field"><label>うち建物価格<span class="unit">円</span></label><input id="buildingPrice" type="text" inputmode="numeric"><div class="hint">残りが土地分になります</div></div>
         <div class="field"><label>築年数<span class="unit">年</span></label><input id="age" type="text" inputmode="numeric"></div>
@@ -112,6 +113,11 @@
 
   <!-- ============ 試算結果 ============ -->
   <section class="tab-panel" id="panel-result">
+    <div class="toolbar">
+      <button class="btn primary" id="pdfBtn">PDF提案書を作成</button>
+      <button class="btn" id="xlsxBtn">Excel出力（.xlsx）</button>
+      <span class="notes">PDFは印刷ダイアログで「PDFとして保存」を選択（A4縦・複数ページ）</span>
+    </div>
     <div class="kpis" id="kpiBox"></div>
 
     <div class="card" style="margin-top:18px">
@@ -200,6 +206,9 @@
     本シミュレーションは概算です。税制は2026年時点の一般的な取扱い（復興特別所得税・住民税所得割10%込み、給与所得控除は令和7年度改正、中古耐用年数は簡便法）を前提としており、個別の税務判断は税理士にご確認ください。
   </footer>
 </div>
+
+<!-- 印刷用提案書（画面では非表示） -->
+<div id="printReport" aria-hidden="true"></div>
 
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>

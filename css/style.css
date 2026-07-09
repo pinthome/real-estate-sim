@@ -168,3 +168,68 @@ td.neg { color: var(--s-red); }
   .grid { grid-template-columns: 1fr 1fr; }
   .kpi .k-value { font-size: 18px; }
 }
+
+/* ============ 印刷用提案書 ============ */
+#printReport { display: none; }
+#printReport.debug { display: block; max-width: 800px; margin: 40px auto; }
+
+.rp-page {
+  background: #fff; color: #0b0b0b;
+  page-break-after: always;
+  padding: 0;
+}
+.rp-page:last-child { page-break-after: auto; }
+.rp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 2px solid #2a78d6; padding-bottom: 6px; margin-bottom: 14px;
+}
+.rp-header .rp-title { font-size: 16pt; font-weight: 700; }
+.rp-header .rp-meta { font-size: 8.5pt; color: #52514e; text-align: right; }
+.rp-h2 {
+  font-size: 11pt; font-weight: 650; margin: 14px 0 8px;
+  padding-left: 8px; border-left: 4px solid #2a78d6;
+}
+.rp-cover-name { font-size: 13pt; font-weight: 650; margin: 4px 0 12px; }
+
+table.rp-table { border-collapse: collapse; width: 100%; font-size: 8.5pt; font-variant-numeric: tabular-nums; }
+table.rp-table th, table.rp-table td { border: 1px solid #d5d4cd; padding: 3.5pt 6pt; }
+table.rp-table th { background: #eef3fa; font-weight: 600; text-align: left; white-space: nowrap; }
+table.rp-table td { text-align: right; }
+table.rp-table td.l { text-align: left; }
+table.rp-table tr.rp-best td { background: #eaf2fc; font-weight: 600; }
+table.rp-table td.neg { color: #c22; }
+
+.rp-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0; }
+.rp-kpi { border: 1px solid #d5d4cd; border-radius: 6px; padding: 7pt 9pt; }
+.rp-kpi .k-label { font-size: 7.5pt; color: #52514e; }
+.rp-kpi .k-value { font-size: 13pt; font-weight: 700; }
+.rp-kpi .k-note { font-size: 7pt; color: #898781; }
+.rp-kpi .k-value.neg { color: #c22; }
+
+.rp-chart { margin: 6px 0 2px; }
+.rp-chart svg { width: 100%; height: auto; }
+.rp-chart .chart-legend { font-size: 8pt; margin-top: 2px; }
+.rp-chart .chart-tip { display: none !important; }
+.rp-comment { font-size: 9pt; line-height: 1.7; margin: 6px 0; }
+.rp-comment li { margin-bottom: 2pt; }
+.rp-notes { font-size: 7.5pt; color: #52514e; line-height: 1.6; }
+.rp-footer { font-size: 7.5pt; color: #898781; text-align: right; margin-top: 10px; }
+
+@media print {
+  @page { size: A4 portrait; margin: 13mm 12mm; }
+  html, body { background: #fff !important; }
+  body {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    font-size: 9.5pt;
+  }
+  body.printing .wrap { display: none !important; }
+  body.printing #printReport { display: block !important; }
+  /* チャートのCSS変数をライト固定 */
+  #printReport {
+    --surface: #ffffff; --page: #ffffff;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.15);
+    --s-blue: #2a78d6; --s-aqua: #1baf7a; --s-red: #e34948; --s-violet: #4a3aa7;
+  }
+}
