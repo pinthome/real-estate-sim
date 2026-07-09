@@ -192,6 +192,8 @@
     }
     $('cfTable').innerHTML = html + '</tbody></table>';
 
+    renderEvaluation(r);
+
     // 前提の注記
     const notes = [
       `中古耐用年数: ${r.usefulLife}年（簡便法・最終年は備忘価額1円まで償却）`,
@@ -204,6 +206,34 @@
     ];
     $('assumptionNotes').innerHTML = '<b>計算の前提</b><ul>' + notes.map(n => `<li>${n}</li>`).join('') + '</ul>';
   }
+
+  /* ---------- 投資評価 ---------- */
+  const RATING_LABELS = { good: '◎ 良好', fair: '○ 標準', caution: '△ 注意', poor: '✕ 弱点' };
+
+  function evalCriteriaHtml(ev) {
+    return '<div class="eval-criteria">' + ev.criteria.filter(c => c.rating != null).map(c =>
+      `<div class="eval-row"><span class="rating-chip rc-${c.rating}">${RATING_LABELS[c.rating]}</span>` +
+      `<span class="er-label">${c.label}</span><span class="er-value">${c.value}</span></div>`).join('') + '</div>';
+  }
+  function evalListsHtml(ev, forPrint) {
+    let html = '';
+    if (ev.strengths.length) html += `<div class="eval-section"><h3>この投資の強み</h3><ul>${ev.strengths.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
+    if (ev.concerns.length) html += `<div class="eval-section"><h3>懸念点・リスク</h3><ul>${ev.concerns.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
+    if (ev.improvements.length) html += `<div class="eval-section"><h3>改善するなら（効果は再計算による試算）</h3><ul>${ev.improvements.map(i => `<li><b>${i.title}</b>：${i.detail}</li>`).join('')}</ul></div>`;
+    html += `<div class="eval-section"><h3>こんな投資家の方に向いています</h3><ul>${ev.investorFit.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
+    if (!forPrint) html += `<p class="notes" style="margin-top:12px">※ 評価は本シミュレーションの前提条件に基づく機械的な目安です。物件の立地・管理状態・市況などは反映されていません。</p>`;
+    return html;
+  }
+  function renderEvaluation(r) {
+    const ev = Engine.evaluate(r);
+    lastEval = ev;
+    $('evalCard').innerHTML =
+      `<div class="eval-head"><div class="eval-grade g-${ev.grade}">${ev.grade}</div>` +
+      `<div><div class="eval-title">投資評価：${ev.gradeLabel}（スコア ${ev.score}/100）</div>` +
+      `<div class="eval-sub">${ev.headline}</div></div></div>` +
+      evalCriteriaHtml(ev) + evalListsHtml(ev, false);
+  }
+  let lastEval = null;
 
   /* ---------- 出口戦略 ---------- */
   function renderExit(r) {
@@ -439,7 +469,20 @@
           .map(([l, v]) => `<div class="rp-kpi"><div class="k-label">${l}</div><div class="k-value">${v}</div></div>`).join('')}
       </div>
       <p class="rp-notes">本資料は概算シミュレーションであり、将来の収益を保証するものではありません。前提条件・免責事項は最終ページをご確認ください。</p>
-      <div class="rp-footer">1</div>
+      <div class="rp-footer">{{PAGE}}</div>
+    </section>`;
+
+    // --- 投資評価ページ ---
+    const ev = lastEval || Engine.evaluate(r);
+    const pEval = `<section class="rp-page">
+      ${rpHeader('投資評価', name)}
+      <div class="eval-head"><div class="eval-grade g-${ev.grade}">${ev.grade}</div>
+        <div><div class="eval-title">投資評価：${ev.gradeLabel}（スコア ${ev.score}/100）</div>
+        <div class="eval-sub">${ev.headline}</div></div></div>
+      ${evalCriteriaHtml(ev)}
+      ${evalListsHtml(ev, true)}
+      <p class="rp-notes" style="margin-top:10px">※ 本評価は本シミュレーションの前提条件に基づく機械的な目安であり、物件の立地・管理状態・市況等は反映されていません。投資判断はお客様ご自身の責任にてお願いいたします。</p>
+      <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
     // --- 2枚目: CF・損益チャート ---
@@ -456,7 +499,7 @@
       <div class="rp-h2">損益（不動産所得）と減価償却・元金返済</div>
       ${cloneChart('plChart')}
       <ul class="rp-comment">${comments.map(c => `<li>${c}</li>`).join('')}</ul>
-      <div class="rp-footer">2</div>
+      <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
     // --- 3枚目: 出口戦略 ---
@@ -483,7 +526,7 @@
       <div class="rp-h2">主要年の売却試算（円）</div>
       <table class="rp-table"><thead><tr><th>売却年</th><th>売却価格</th><th>売却益</th><th>税額</th><th>売却手取り</th><th>累積CF</th><th>トータル利益</th><th>IRR</th></tr></thead>
       <tbody>${exitRows}</tbody></table>
-      <div class="rp-footer">3</div>
+      <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
     // --- 4枚目: 年次明細 ---
@@ -497,7 +540,7 @@
         <thead><tr><th>年</th><th>収入</th><th>運営費</th><th>返済(元利)</th><th>うち利息</th><th>減価償却</th><th>損益</th><th>税額</th><th>税引後CF</th><th>累積CF</th><th>残債</th></tr></thead>
         <tbody>${detailRows}</tbody>
       </table>
-      <div class="rp-footer">4</div>
+      <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
     // --- 5枚目: 前提・免責 ---
@@ -519,10 +562,11 @@
       </ul>
       <div class="rp-h2">免責事項</div>
       <p class="rp-comment">本資料は物件のご検討のための概算シミュレーションであり、将来の収益・税額を保証するものではありません。記載の税務上の取扱いは一般的な例によるものであり、個別の税務判断については税理士等の専門家にご確認ください。実際の売買にあたっては、重要事項説明書・売買契約書等の内容を必ずご確認ください。</p>
-      <div class="rp-footer">5</div>
+      <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
-    return p1 + p2 + p3 + p4 + p5;
+    let page = 0;
+    return [p1, pEval, p2, p3, p4, p5].map(p => p.replace('{{PAGE}}', String(++page))).join('');
   }
 
   $('pdfBtn').addEventListener('click', () => {

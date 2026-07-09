@@ -169,6 +169,44 @@ td.neg { color: var(--s-red); }
   .kpi .k-value { font-size: 18px; }
 }
 
+/* ============ 投資評価 ============ */
+.eval-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+.eval-grade {
+  width: 64px; height: 64px; border-radius: 12px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 800; color: #fff;
+}
+.eval-grade.g-S, .eval-grade.g-A { background: #2a78d6; }
+.eval-grade.g-B { background: #6d7480; }
+.eval-grade.g-C { background: #ec835a; }
+.eval-grade.g-D { background: #d03b3b; }
+.eval-head .eval-title { font-size: 16px; font-weight: 700; }
+.eval-head .eval-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+
+.eval-criteria { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px 16px; margin: 10px 0 4px; }
+.eval-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+.eval-row .er-label { color: var(--ink-2); flex: 1; }
+.eval-row .er-value { font-weight: 650; font-variant-numeric: tabular-nums; }
+.rating-chip {
+  flex: none; font-size: 11px; font-weight: 650; padding: 1px 8px; border-radius: 9px;
+  border: 1.5px solid; background: transparent;
+}
+.rating-chip.rc-good    { color: #0a7a0a; border-color: #0ca30c; }
+.rating-chip.rc-fair    { color: #1c5cab; border-color: #2a78d6; }
+.rating-chip.rc-caution { color: #b05a2e; border-color: #ec835a; }
+.rating-chip.rc-poor    { color: #a92f2f; border-color: #d03b3b; }
+@media (prefers-color-scheme: dark) {
+  .rating-chip.rc-good { color: #0ca30c; }
+  .rating-chip.rc-fair { color: #3987e5; }
+  .rating-chip.rc-caution { color: #ec835a; }
+  .rating-chip.rc-poor { color: #e66767; }
+}
+.eval-section { margin-top: 14px; }
+.eval-section h3 { font-size: 13px; margin: 0 0 6px; font-weight: 650; }
+.eval-section ul { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-2); }
+.eval-section li { margin-bottom: 4px; }
+.eval-section li b { color: var(--ink); }
+
 /* ============ 印刷用提案書 ============ */
 #printReport { display: none; }
 #printReport.debug { display: block; max-width: 800px; margin: 40px auto; }

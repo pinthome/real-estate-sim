@@ -337,6 +337,165 @@ const Engine = (() => {
     };
   }
 
+  /* ---------- 投資評価（ルールベース） ---------- */
+  // 各指標を good/fair/caution/poor の4段階で判定し、加重スコアから総合評価S〜Dを算出。
+  // しきい値は不動産投資実務の一般的な目安（金融機関のDSCR基準1.2〜1.3等）に基づく。
+  const RATING_SCORE = { good: 3, fair: 2, caution: 1, poor: 0 };
+  const GRADE_TABLE = [
+    { min: 85, grade: 'S', label: '優良', headline: '収益性・安全性ともに高水準の投資といえます。' },
+    { min: 70, grade: 'A', label: '良好', headline: '堅実に収益が見込める投資です。' },
+    { min: 50, grade: 'B', label: '標準', headline: '成り立つ水準ですが、弱点を理解したうえでの判断が必要です。' },
+    { min: 30, grade: 'C', label: '要改善', headline: '現条件のままでは収支に弱さがあります。条件改善の余地を検討してください。' },
+    { min: -1, grade: 'D', label: '慎重', headline: '現条件では投資リスクが高く、積極的にはおすすめしにくい水準です。' },
+  ];
+
+  function rateBand(v, bands) { // bands: [good以上, fair以上, caution以上] 降順
+    if (v == null || isNaN(v)) return null;
+    if (v >= bands[0]) return 'good';
+    if (v >= bands[1]) return 'fair';
+    if (v >= bands[2]) return 'caution';
+    return 'poor';
+  }
+
+  function evaluate(r) {
+    const m = r.metrics;
+    const inp = r.input;
+    const criteria = [];
+    const pctf = v => (v * 100).toFixed(2) + '%';
+
+    // --- 各指標の判定 ---
+    if (r.loan > 0 && m.dscr != null) {
+      criteria.push({ key: 'dscr', label: 'DSCR（返済余裕度）', value: m.dscr.toFixed(2), weight: 0.18,
+        rating: rateBand(m.dscr, [1.5, 1.3, 1.1]),
+        comment: m.dscr >= 1.3 ? '金融機関の目安(1.2〜1.3)を上回る返済余裕があります' :
+                 m.dscr >= 1.1 ? '返済余裕が薄く、空室や金利上昇で赤字化しやすい水準です' :
+                 '家賃収入に対して返済負担が重すぎます' });
+    } else if (r.loan === 0) {
+      criteria.push({ key: 'dscr', label: 'DSCR（返済余裕度）', value: '借入なし', weight: 0.18,
+        rating: 'good', comment: '無借入のため返済リスクはありません' });
+    }
+    if (r.equity > 0 && m.ccr != null) {
+      criteria.push({ key: 'ccr', label: 'CCR（自己資金利回り）', value: pctf(m.ccr), weight: 0.12,
+        rating: rateBand(m.ccr, [0.08, 0.05, 0.02]),
+        comment: m.ccr >= 0.08 ? '自己資金の回収効率が高い水準です' :
+                 m.ccr >= 0.02 ? '自己資金の回収効率はやや低めです' :
+                 '初年度の手残りが自己資金に対して小さすぎます' });
+    }
+    criteria.push({ key: 'noi', label: '実質利回り（NOI）', value: pctf(m.noiYield), weight: 0.15,
+      rating: rateBand(m.noiYield, [0.05, 0.04, 0.03]),
+      comment: m.noiYield >= 0.05 ? '運営費控除後も十分な利回りが確保できています' :
+               m.noiYield >= 0.03 ? '運営費控除後の利回りは平均的〜やや低めです' :
+               '運営費を引くと利回りがほとんど残りません' });
+    if (m.bestExitIRR != null) {
+      criteria.push({ key: 'irr', label: 'IRR（最有利売却時）', value: pctf(m.bestExitIRR), weight: 0.20,
+        rating: rateBand(m.bestExitIRR, [0.08, 0.05, 0.02]),
+        comment: m.bestExitIRR >= 0.08 ? '他の投資対象と比較しても高い収益率です' :
+                 m.bestExitIRR >= 0.05 ? '投資としての収益率は標準的です' :
+                 m.bestExitIRR >= 0.02 ? '収益率は低めで、インフレ次第で実質目減りする水準です' :
+                 '投資収益率がほぼ確保できていません' });
+    }
+    if (r.equity > 0) {
+      criteria.push({ key: 'payback', label: '自己資金の回収（賃貸CFのみ）', value: m.payback ? m.payback + '年' : '35年超', weight: 0.10,
+        rating: m.payback == null ? 'poor' : m.payback <= 8 ? 'good' : m.payback <= 12 ? 'fair' : m.payback <= 20 ? 'caution' : 'poor',
+        comment: m.payback == null ? '賃貸収入だけでは自己資金を回収できず、売却頼みの投資です' :
+                 m.payback <= 12 ? '賃貸収入だけで無理なく自己資金を回収できます' :
+                 '自己資金の回収に時間がかかります' });
+      const roi = m.bestExitProfit != null ? m.bestExitProfit / r.equity : null;
+      if (roi != null) {
+        criteria.push({ key: 'exitRoi', label: 'トータル利益（対自己資金）', value: (roi >= 0 ? '+' : '') + pctf(roi), weight: 0.15,
+          rating: rateBand(roi, [1.0, 0.5, 0]),
+          comment: roi >= 1.0 ? '最有利売却なら自己資金が2倍以上になる試算です' :
+                   roi >= 0 ? '売却まで含めれば利益は確保できる試算です' :
+                   '売却まで含めても投下資金を回収できない試算です' });
+      }
+    } else {
+      criteria.push({ key: 'exitAbs', label: 'トータル利益（最有利売却）', value: m.bestExitProfit != null ? Math.round(m.bestExitProfit).toLocaleString('ja-JP') + '円' : '—', weight: 0.25,
+        rating: m.bestExitProfit == null ? null : m.bestExitProfit > 5000000 ? 'good' : m.bestExitProfit > 0 ? 'fair' : 'poor',
+        comment: 'フルローンのため自己資金効率ではなく利益絶対額で評価しています' });
+    }
+    const cf2 = r.rows[1] ? r.rows[1].atcf : null; // 初年度は諸費用で歪むため2年目で判定
+    if (cf2 != null) {
+      criteria.push({ key: 'cf', label: '単年の税引後CF（2年目）', value: Math.round(cf2).toLocaleString('ja-JP') + '円', weight: 0.10,
+        rating: cf2 >= 300000 ? 'good' : cf2 >= 0 ? 'fair' : cf2 >= -200000 ? 'caution' : 'poor',
+        comment: cf2 >= 0 ? '保有中の持ち出しは発生しない見込みです' :
+                 '毎年の持ち出し（赤字補填）が発生します' });
+    }
+
+    // --- 総合スコア（判定できた指標で加重平均） ---
+    const valid = criteria.filter(c => c.rating != null);
+    const wSum = valid.reduce((s, c) => s + c.weight, 0);
+    const score = wSum > 0 ? Math.round(valid.reduce((s, c) => s + RATING_SCORE[c.rating] * c.weight, 0) / (wSum * 3) * 100) : 0;
+    const g = GRADE_TABLE.find(x => score >= x.min);
+
+    // --- 強み・懸念 ---
+    const strengths = valid.filter(c => c.rating === 'good').map(c => `${c.label} ${c.value} — ${c.comment}`);
+    const concerns = valid.filter(c => c.rating === 'caution' || c.rating === 'poor').map(c => `${c.label} ${c.value} — ${c.comment}`);
+    if (r.equity <= 0) concerns.push('フルローン（自己資金の投下なし）— 金利上昇・空室・売却価格下落への耐性が低くなります');
+    if (m.deadCross && m.deadCross <= 10) concerns.push(`${m.deadCross}年目にデッドクロス — 帳簿黒字でも手残りが細り、納税負担が増します`);
+
+    // --- 改善策（条件を変えて再計算し、効果を数値で示す） ---
+    const improvements = [];
+    const weak = k => { const c = criteria.find(x => x.key === k); return c && (c.rating === 'caution' || c.rating === 'poor'); };
+    function tryScenario(title, overrides, pick) {
+      try {
+        const alt = simulate(Object.assign({}, inp, overrides));
+        const detail = pick(alt);
+        if (detail) improvements.push({ title, detail });
+      } catch (e) { /* シナリオ計算失敗時はスキップ */ }
+    }
+    if ((weak('dscr') || weak('cf')) && r.loan > 0 && (inp.loanRate || 0) >= 0.008) {
+      tryScenario('金利引き下げ交渉（−0.3%）', { loanRate: inp.loanRate - 0.003 }, alt =>
+        `DSCR ${m.dscr == null ? '—' : m.dscr.toFixed(2)} → ${alt.metrics.dscr == null ? '—' : alt.metrics.dscr.toFixed(2)}、2年目CF ${Math.round(cf2 || 0).toLocaleString()}円 → ${Math.round(alt.rows[1].atcf).toLocaleString()}円`);
+    }
+    if (weak('noi') || weak('irr') || weak('exitRoi')) {
+      const cut = Math.round(inp.price * 0.05);
+      tryScenario(`指値交渉（価格−5% ＝ ${(Math.round((inp.price - cut) / 10000)).toLocaleString()}万円）`,
+        { price: inp.price - cut, buildingPrice: Math.round(r.bldg * 0.95), loanAmount: Math.max(0, r.loan - cut) }, alt =>
+        `実質利回り ${pctf(m.noiYield)} → ${pctf(alt.metrics.noiYield)}、IRR ${m.bestExitIRR == null ? '—' : pctf(m.bestExitIRR)} → ${alt.metrics.bestExitIRR == null ? '—' : pctf(alt.metrics.bestExitIRR)}`);
+    }
+    if ((weak('dscr') || weak('cf')) && r.loan > 0 && (inp.loanYears || 0) < 35) {
+      tryScenario(`借入期間の延長（${inp.loanYears}年 → 35年）`, { loanYears: 35 }, alt =>
+        `DSCR ${m.dscr == null ? '—' : m.dscr.toFixed(2)} → ${alt.metrics.dscr == null ? '—' : alt.metrics.dscr.toFixed(2)}、2年目CF ${Math.round(cf2 || 0).toLocaleString()}円 → ${Math.round(alt.rows[1].atcf).toLocaleString()}円（総返済額は増えます）`);
+    }
+    if (r.vacancyRate > 0.06 && (inp.vacancyMonths || 0) >= 2) {
+      tryScenario(`空室対策（想定空室期間 ${inp.vacancyMonths}ヵ月 → ${Math.ceil(inp.vacancyMonths / 2)}ヵ月）`,
+        { vacancyMonths: Math.ceil(inp.vacancyMonths / 2) }, alt =>
+        `実質利回り ${pctf(m.noiYield)} → ${pctf(alt.metrics.noiYield)}、2年目CF ${Math.round(cf2 || 0).toLocaleString()}円 → ${Math.round(alt.rows[1].atcf).toLocaleString()}円`);
+    }
+    if ((weak('ccr') || weak('payback')) && r.equity > 0 && r.loan > 0) {
+      const add = Math.min(2000000, Math.round(r.loan * 0.1));
+      tryScenario(`頭金の積み増し（＋${Math.round(add / 10000).toLocaleString()}万円）`, { loanAmount: r.loan - add }, alt =>
+        `DSCR ${m.dscr == null ? '—' : m.dscr.toFixed(2)} → ${alt.metrics.dscr == null ? '—' : alt.metrics.dscr.toFixed(2)}、2年目CF ${Math.round(cf2 || 0).toLocaleString()}円 → ${Math.round(alt.rows[1].atcf).toLocaleString()}円（CCRは低下する場合があります）`);
+    }
+    if (inp.taxMode === 'personal' && m.bestExitYear != null && m.bestExitYear <= 6) {
+      improvements.push({ title: '売却時期の調整', detail: '6年目までの売却は短期譲渡（39.63%）です。7年目以降まで保有すると長期譲渡（20.315%）となり、売却益への税負担が約半分になります。' });
+    }
+
+    // --- どんな投資家に向くか ---
+    const investorFit = [];
+    if (inp.taxMode === 'personal' && r.rows[0].tax < -200000) {
+      investorFit.push(`給与収入が高く節税メリットを重視する方（初年度は損益通算で約${Math.round(-r.rows[0].tax / 10000).toLocaleString()}万円の税負担軽減）`);
+    }
+    if (m.dscr != null && m.dscr >= 1.3 && (m.payback != null && m.payback <= 15)) {
+      investorFit.push('安定したキャッシュフローを重視し、長期保有で堅実に資産形成したい方');
+    }
+    if (r.usefulLife <= 7) {
+      investorFit.push('短期の減価償却による節税を狙える一方、築古物件の修繕リスクに対応できる経験者向け');
+    }
+    if (r.equity <= 0) {
+      investorFit.push('自己資金を温存したい方向けのフルローン計画（ただし市況変動への耐性は低め）');
+    }
+    if (m.bestExitYear != null && m.bestExitYear <= 15 && m.bestExitProfit != null && m.bestExitProfit > 0 && (m.payback == null || m.payback > 20)) {
+      investorFit.push('保有中のCFより売却益を含めたトータルリターンを狙う出口重視の方');
+    }
+    if (investorFit.length === 0) {
+      investorFit.push(score >= 50 ? '長期でじっくり資産形成したい堅実志向の方' : '現条件では特定の投資家層に積極的におすすめできる材料が乏しい状況です');
+    }
+
+    return { score, grade: g.grade, gradeLabel: g.label, headline: g.headline,
+             criteria, strengths, concerns, improvements, investorFit };
+  }
+
   /* ---------- IRR（二分法） ---------- */
   function computeIRR(flows) {
     const npv = r => flows.reduce((s, cf, i) => s + cf / Math.pow(1 + r, i), 0);
@@ -350,7 +509,7 @@ const Engine = (() => {
   }
 
   return {
-    simulate, amortize, usefulLife, straightLineRate, depreciationSchedule,
+    simulate, evaluate, amortize, usefulLife, straightLineRate, depreciationSchedule,
     salaryDeduction, personalTax, corporateTax, transferTaxRate,
     brokerageFee, stampDutySale, stampDutyLoan, acquisitionCosts, computeIRR,
   };
