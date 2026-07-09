@@ -209,31 +209,96 @@
 
   /* ---------- 投資評価 ---------- */
   const RATING_LABELS = { good: '◎ 良好', fair: '○ 標準', caution: '△ 注意', poor: '✕ 弱点' };
+  const LEVEL_NAMES = { beginner: '初心者向け', intermediate: '中級者向け', pro: 'プロ向け' };
+  let evalLevel = localStorage.getItem('reSimEvalLevel') || 'intermediate';
+  let lastEval = null;
 
-  function evalCriteriaHtml(ev) {
-    return '<div class="eval-criteria">' + ev.criteria.filter(c => c.rating != null).map(c =>
-      `<div class="eval-row"><span class="rating-chip rc-${c.rating}">${RATING_LABELS[c.rating]}</span>` +
-      `<span class="er-label">${c.label}</span><span class="er-value">${c.value}</span></div>`).join('') + '</div>';
+  // 初心者向け: 指標のやさしい言い換え
+  const BEGINNER_GLOSS = {
+    dscr: '家賃収入が毎年のローン返済の何倍あるか。1.3倍以上あると空室が出ても返済に困りにくい安心ラインです',
+    ccr: '出した自己資金が1年あたり何%戻ってくるか。銀行預金や株式投資と比べる時の物差しになります',
+    noi: '管理費や税金などの経費を引いた後の「本当の利回り」。広告に載る表面利回りより実態に近い数字です',
+    irr: '売却まで含めた投資全体を「年利◯%」に換算した数字。株式投資の平均リターン（年5〜7%程度）と比べてみてください',
+    payback: '出した自己資金が家賃収入だけで何年で回収できるか。10年前後なら標準的です',
+    exitRoi: '一番良いタイミングで売却した場合、出した自己資金が最終的に何%増えるか',
+    exitAbs: '一番良いタイミングで売却した場合の最終的な利益額です',
+    cf: '経費・返済・税金をすべて払った後、毎年手元に残るお金です（買った年は諸費用がかかるため2年目で見ます）',
+  };
+  // 初心者向け: 総評の言い換え
+  const BEGINNER_HEADLINES = {
+    S: 'とても良い条件の投資です。この水準の物件は多くありません。',
+    A: '堅実に利益が見込める良い投資です。',
+    B: '「買ってもよいが、弱点も知っておくべき」物件です。下の懸念点を必ず確認してください。',
+    C: 'このままの条件では利益を出しにくい物件です。価格や融資条件の見直しをおすすめします。',
+    D: '損をする可能性が高い条件です。よほどの理由がない限り見送りをおすすめします。',
+  };
+
+  function evalCriteriaHtml(ev, level) {
+    return '<div class="eval-criteria">' + ev.criteria.filter(c => c.rating != null).map(c => {
+      const gloss = level === 'beginner' && BEGINNER_GLOSS[c.key]
+        ? `<div class="er-gloss">${BEGINNER_GLOSS[c.key]}</div>` : '';
+      return `<div class="eval-row-wrap"><div class="eval-row"><span class="rating-chip rc-${c.rating}">${RATING_LABELS[c.rating]}</span>` +
+        `<span class="er-label">${c.label}</span><span class="er-value">${c.value}</span></div>${gloss}</div>`;
+    }).join('') + '</div>';
   }
-  function evalListsHtml(ev, forPrint) {
+
+  function proMetricsHtml(r) {
+    const p = Engine.proMetrics(r);
+    const rows = [
+      ['LTV（借入÷物件価格）', p.ltv == null ? '—' : pct(p.ltv, 1)],
+      ['返済比率（年返済÷満室家賃）', p.repaymentRatio == null ? '—' : pct(p.repaymentRatio, 1)],
+      ['損益分岐入居率（BER）', p.breakEvenOcc == null ? '—' : pct(p.breakEvenOcc, 1)],
+      ['NOI（初年度）', fmt(p.noi1) + '円'],
+      ['実効税率（2年目・対不動産所得）', p.effectiveTaxRateY2 == null ? '—' : pct(p.effectiveTaxRateY2, 1)],
+    ];
+    if (p.stressRate) rows.push(['ストレス: 金利＋1%', `DSCR ${p.stressRate.dscr == null ? '—' : p.stressRate.dscr.toFixed(2)} / 2年目CF ${fmt(p.stressRate.cf2)}円 / IRR ${p.stressRate.irr == null ? '—' : pct(p.stressRate.irr, 1)}`]);
+    if (p.stressRent) rows.push(['ストレス: 家賃−10%', `NOI利回り ${pct(p.stressRent.noiYield, 2)} / 2年目CF ${fmt(p.stressRent.cf2)}円${p.stressRent.dscr != null ? ' / DSCR ' + p.stressRent.dscr.toFixed(2) : ''}`]);
+    return `<div class="eval-section"><h3>詳細指標・ストレステスト</h3><div class="eval-criteria">` +
+      rows.map(([k, v]) => `<div class="eval-row"><span class="er-label">${k}</span><span class="er-value">${v}</span></div>`).join('') +
+      `</div></div>`;
+  }
+
+  function evalListsHtml(ev, r, level, forPrint) {
     let html = '';
+    if (level === 'pro') html += proMetricsHtml(r);
     if (ev.strengths.length) html += `<div class="eval-section"><h3>この投資の強み</h3><ul>${ev.strengths.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
     if (ev.concerns.length) html += `<div class="eval-section"><h3>懸念点・リスク</h3><ul>${ev.concerns.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
-    if (ev.improvements.length) html += `<div class="eval-section"><h3>改善するなら（効果は再計算による試算）</h3><ul>${ev.improvements.map(i => `<li><b>${i.title}</b>：${i.detail}</li>`).join('')}</ul></div>`;
+    if (ev.improvements.length && level !== 'beginner') {
+      html += `<div class="eval-section"><h3>改善するなら（効果は再計算による試算）</h3><ul>${ev.improvements.map(i => `<li><b>${i.title}</b>：${i.detail}</li>`).join('')}</ul></div>`;
+    }
+    if (ev.improvements.length && level === 'beginner') {
+      html += `<div class="eval-section"><h3>もっと良い条件にするには</h3><ul>${ev.improvements.map(i =>
+        `<li><b>${i.title}</b>。実現できた場合の効果：${i.detail}</li>`).join('')}</ul>` +
+        `<p class="notes">※ 「DSCR」は返済余裕度、「CF」は手元に残るお金のことです。担当者にお気軽にお尋ねください。</p></div>`;
+    }
     html += `<div class="eval-section"><h3>こんな投資家の方に向いています</h3><ul>${ev.investorFit.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
     if (!forPrint) html += `<p class="notes" style="margin-top:12px">※ 評価は本シミュレーションの前提条件に基づく機械的な目安です。物件の立地・管理状態・市況などは反映されていません。</p>`;
     return html;
   }
+
+  function evalHeadHtml(ev, level) {
+    const headline = level === 'beginner' ? (BEGINNER_HEADLINES[ev.grade] || ev.headline) : ev.headline;
+    return `<div class="eval-head"><div class="eval-grade g-${ev.grade}">${ev.grade}</div>` +
+      `<div><div class="eval-title">投資評価：${ev.gradeLabel}（スコア ${ev.score}/100）</div>` +
+      `<div class="eval-sub">${headline}</div></div></div>`;
+  }
+
   function renderEvaluation(r) {
     const ev = Engine.evaluate(r);
     lastEval = ev;
-    $('evalCard').innerHTML =
-      `<div class="eval-head"><div class="eval-grade g-${ev.grade}">${ev.grade}</div>` +
-      `<div><div class="eval-title">投資評価：${ev.gradeLabel}（スコア ${ev.score}/100）</div>` +
-      `<div class="eval-sub">${ev.headline}</div></div></div>` +
-      evalCriteriaHtml(ev) + evalListsHtml(ev, false);
+    const seg = `<div class="eval-level-bar"><span class="notes">解説レベル：</span><div class="seg seg-sm" id="evalLevelSeg">` +
+      ['beginner', 'intermediate', 'pro'].map(l =>
+        `<button data-level="${l}" class="${evalLevel === l ? 'active' : ''}">${LEVEL_NAMES[l].replace('向け', '')}</button>`).join('') +
+      `</div></div>`;
+    $('evalCard').innerHTML = seg + evalHeadHtml(ev, evalLevel) +
+      evalCriteriaHtml(ev, evalLevel) + evalListsHtml(ev, r, evalLevel, false);
+    document.querySelectorAll('#evalLevelSeg button').forEach(b =>
+      b.addEventListener('click', () => {
+        evalLevel = b.dataset.level;
+        localStorage.setItem('reSimEvalLevel', evalLevel);
+        renderEvaluation(lastResult);
+      }));
   }
-  let lastEval = null;
 
   /* ---------- 出口戦略 ---------- */
   function renderExit(r) {
@@ -472,15 +537,13 @@
       <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
-    // --- 投資評価ページ ---
+    // --- 投資評価ページ（選択中の解説レベルで出力） ---
     const ev = lastEval || Engine.evaluate(r);
     const pEval = `<section class="rp-page">
-      ${rpHeader('投資評価', name)}
-      <div class="eval-head"><div class="eval-grade g-${ev.grade}">${ev.grade}</div>
-        <div><div class="eval-title">投資評価：${ev.gradeLabel}（スコア ${ev.score}/100）</div>
-        <div class="eval-sub">${ev.headline}</div></div></div>
-      ${evalCriteriaHtml(ev)}
-      ${evalListsHtml(ev, true)}
+      ${rpHeader(`投資評価（${LEVEL_NAMES[evalLevel]}解説）`, name)}
+      ${evalHeadHtml(ev, evalLevel)}
+      ${evalCriteriaHtml(ev, evalLevel)}
+      ${evalListsHtml(ev, r, evalLevel, true)}
       <p class="rp-notes" style="margin-top:10px">※ 本評価は本シミュレーションの前提条件に基づく機械的な目安であり、物件の立地・管理状態・市況等は反映されていません。投資判断はお客様ご自身の責任にてお願いいたします。</p>
       <div class="rp-footer">{{PAGE}}</div>
     </section>`;

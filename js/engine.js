@@ -496,6 +496,30 @@ const Engine = (() => {
              criteria, strengths, concerns, improvements, investorFit };
   }
 
+  /* ---------- プロ向け詳細指標（ストレステスト含む） ---------- */
+  function proMetrics(r) {
+    const inp = r.input;
+    const y1 = r.rows[0];
+    const y2 = r.rows[1] || y1;
+    const ltv = inp.price > 0 ? r.loan / inp.price : null;
+    const repaymentRatio = r.fullRent > 0 && y1.debtService > 0 ? y1.debtService / r.fullRent : null; // 返済比率(対満室家賃)
+    const breakEvenOcc = r.fullRent > 0 ? (y1.opex + y1.debtService) / r.fullRent : null;             // 損益分岐入居率
+    let stressRate = null, stressRent = null;
+    try {
+      if (r.loan > 0) {
+        const alt = simulate(Object.assign({}, inp, { loanRate: (inp.loanRate || 0) + 0.01 }));
+        stressRate = { dscr: alt.metrics.dscr, cf2: alt.rows[1] ? alt.rows[1].atcf : alt.rows[0].atcf,
+                       irr: alt.metrics.bestExitIRR };
+      }
+      const alt2 = simulate(Object.assign({}, inp, { rentMonthly: (inp.rentMonthly || 0) * 0.9 }));
+      stressRent = { noiYield: alt2.metrics.noiYield, cf2: alt2.rows[1] ? alt2.rows[1].atcf : alt2.rows[0].atcf,
+                     dscr: alt2.metrics.dscr };
+    } catch (e) { /* ストレス計算失敗時はnullのまま */ }
+    return { ltv, repaymentRatio, breakEvenOcc, stressRate, stressRent,
+             noi1: r.metrics.noi1, cf2: y2.atcf,
+             effectiveTaxRateY2: y2.pl > 0 ? y2.tax / y2.pl : null };
+  }
+
   /* ---------- IRR（二分法） ---------- */
   function computeIRR(flows) {
     const npv = r => flows.reduce((s, cf, i) => s + cf / Math.pow(1 + r, i), 0);
@@ -509,7 +533,7 @@ const Engine = (() => {
   }
 
   return {
-    simulate, evaluate, amortize, usefulLife, straightLineRate, depreciationSchedule,
+    simulate, evaluate, proMetrics, amortize, usefulLife, straightLineRate, depreciationSchedule,
     salaryDeduction, personalTax, corporateTax, transferTaxRate,
     brokerageFee, stampDutySale, stampDutyLoan, acquisitionCosts, computeIRR,
   };
