@@ -16,6 +16,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="input" class="active">入力</button>
     <button data-tab="result">試算結果</button>
+    <button data-tab="match">適合判定</button>
     <button data-tab="exit">出口戦略</button>
     <button data-tab="sens">感度分析</button>
     <button data-tab="costs">諸費用計算</button>
@@ -34,6 +35,12 @@
 
     <div class="card">
       <h2>物件<span class="sub">価格・構造・築年数</span></h2>
+      <div class="toolbar" style="margin-bottom:14px">
+        <div class="seg" id="ptypeSeg">
+          <button data-ptype="unit" class="active">区分（1戸）</button>
+          <button data-ptype="building">一棟</button>
+        </div>
+      </div>
       <div class="grid">
         <div class="field"><label>物件名称<span class="unit">提案書に表示</span></label><input id="propertyName" type="text" placeholder="例：○○マンション 101号室"></div>
         <div class="field"><label>物件価格<span class="unit">円（税込）</span></label><input id="price" type="text" inputmode="numeric"></div>
@@ -47,7 +54,9 @@
             <option value="19">軽量鉄骨造 骨格材3mm以下（19年）</option>
             <option value="22">木造（22年）</option>
           </select>
+          <div class="hint" id="remainingLifeHint"></div>
         </div>
+        <div class="field" data-ptype="building"><label>戸数<span class="unit">戸（参考）</span></label><input id="unitsCount" type="text" inputmode="numeric"></div>
       </div>
     </div>
 
@@ -60,17 +69,28 @@
         <div class="field"><label>取得諸費用（取得価額算入）<span class="unit">円</span></label><input id="costsAcq" type="text" inputmode="numeric"><div class="hint">仲介手数料・固都税精算金など</div></div>
         <div class="field"><label>取得諸費用（初年度費用）<span class="unit">円</span></label><input id="costsExp" type="text" inputmode="numeric"><div class="hint">登免税・取得税・印紙・司法書士など</div></div>
         <div class="field"><label>&nbsp;</label><button class="btn" id="estimateCostsBtn">諸費用を自動概算で入力</button></div>
+        <div class="field"><label>融資プリセット<span class="unit">金融機関の条件を保存</span></label>
+          <select id="lenderPreset"><option value="">（選択なし）</option></select>
+        </div>
+        <div class="field"><label>&nbsp;</label>
+          <button class="btn" id="savePresetBtn">現在の条件をプリセット保存</button>
+          <button class="btn" id="deletePresetBtn" style="margin-top:4px">選択中を削除</button>
+        </div>
       </div>
+      <div class="notes" id="loanWarnings" style="margin-top:10px"></div>
     </div>
 
     <div class="card">
       <h2>収入<span class="sub">賃料・入退去サイクル</span></h2>
       <div class="grid">
-        <div class="field"><label>月額家賃<span class="unit">円（共益費込）</span></label><input id="rentMonthly" type="text" inputmode="numeric"></div>
-        <div class="field"><label>礼金<span class="unit">円/入居1回</span></label><input id="keyMoney" type="text" inputmode="numeric"></div>
-        <div class="field"><label>更新料<span class="unit">円/回（2年更新）</span></label><input id="renewalFee" type="text" inputmode="numeric"></div>
-        <div class="field"><label>想定入居期間<span class="unit">ヵ月</span></label><input id="tenancyMonths" type="text" inputmode="numeric"></div>
-        <div class="field"><label>想定空室期間<span class="unit">ヵ月</span></label><input id="vacancyMonths" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="unit"><label>月額家賃<span class="unit">円（共益費込）</span></label><input id="rentMonthly" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="unit"><label>礼金<span class="unit">円/入居1回</span></label><input id="keyMoney" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="unit"><label>更新料<span class="unit">円/回（2年更新）</span></label><input id="renewalFee" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="unit"><label>想定入居期間<span class="unit">ヵ月</span></label><input id="tenancyMonths" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="unit"><label>想定空室期間<span class="unit">ヵ月</span></label><input id="vacancyMonths" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="building"><label>満室想定年収<span class="unit">円/年（レントロール合計）</span></label><input id="grossAnnualRent" type="text" inputmode="numeric"></div>
+        <div class="field" data-ptype="building"><label>想定空室率<span class="unit">%</span></label><input id="vacancyRatePct" type="text" inputmode="decimal"></div>
+        <div class="field" data-ptype="building"><label>その他収入<span class="unit">円/年（礼金・更新料等）</span></label><input id="otherIncomeAnnual" type="text" inputmode="numeric"></div>
         <div class="field"><label>家賃下落率<span class="unit">%/年</span></label><input id="rentDeclineRate" type="text" inputmode="decimal"><div class="hint">2年目から毎年、当初家賃基準で下落</div></div>
       </div>
     </div>
@@ -80,8 +100,11 @@
       <div class="grid">
         <div class="field"><label>固定資産税・都市計画税・保険<span class="unit">円/年</span></label><input id="fixedCostTax" type="text" inputmode="numeric"></div>
         <div class="field"><label>管理費・修繕積立金・集金代行等<span class="unit">円/月</span></label><input id="fixedCostMgmt" type="text" inputmode="numeric"></div>
-        <div class="field"><label>入居者入替コスト<span class="unit">円/回</span></label><input id="turnoverCost" type="text" inputmode="numeric"><div class="hint">仲介手数料・広告料・原状回復の合計</div></div>
+        <div class="field" data-ptype="unit"><label>入居者入替コスト<span class="unit">円/回</span></label><input id="turnoverCost" type="text" inputmode="numeric"><div class="hint">仲介手数料・広告料・原状回復の合計</div></div>
+        <div class="field" data-ptype="building"><label>入替・原状回復等<span class="unit">円/年（平均）</span></label><input id="turnoverAnnualDirect" type="text" inputmode="numeric"></div>
         <div class="field"><label>修繕費<span class="unit">円/年（平均）</span></label><input id="repairAnnual" type="text" inputmode="numeric"><div class="hint">エアコン・給湯器等の交換費を年割り</div></div>
+        <div class="field" data-ptype="building"><label>大規模修繕の周期<span class="unit">年</span></label><input id="capexCycle" type="text" inputmode="numeric"><div class="hint">例：15年ごと</div></div>
+        <div class="field" data-ptype="building"><label>大規模修繕 1回あたり<span class="unit">円</span></label><input id="capexAmount" type="text" inputmode="numeric"><div class="hint">該当年の支出・費用に計上</div></div>
       </div>
     </div>
 
@@ -135,6 +158,53 @@
     </div>
 
     <div class="card notes" id="assumptionNotes"></div>
+  </section>
+
+  <!-- ============ 適合判定 ============ -->
+  <section class="tab-panel" id="panel-match">
+    <div class="card">
+      <h2>買主条件プロファイル<span class="sub">お客様の購入条件を保存して物件と照合</span></h2>
+      <div class="toolbar">
+        <select id="profileSelect" class="btn" style="min-width:220px"><option value="">（プロファイル未選択）</option></select>
+        <button class="btn" id="newProfileBtn">新規作成</button>
+        <button class="btn" id="deleteProfileBtn">削除</button>
+      </div>
+      <div class="grid" id="profileForm">
+        <div class="field"><label>プロファイル名<span class="unit">お客様名など</span></label><input id="pfName" type="text" placeholder="例：株式会社〇〇様"></div>
+        <div class="field"><label>価格帯 下限<span class="unit">円</span></label><input id="pfPriceMin" type="text" inputmode="numeric"></div>
+        <div class="field"><label>価格帯 上限<span class="unit">円</span></label><input id="pfPriceMax" type="text" inputmode="numeric"></div>
+        <div class="field"><label>RC造の築年数上限<span class="unit">年</span></label><input id="pfRcMaxAge" type="text" inputmode="numeric"></div>
+        <div class="field"><label>S造の築年数上限<span class="unit">年</span></label><input id="pfSteelMaxAge" type="text" inputmode="numeric"></div>
+        <div class="field"><label>木造の築年数上限<span class="unit">年</span></label><input id="pfWoodMaxAge" type="text" inputmode="numeric"></div>
+        <div class="field"><label>表面利回り 下限<span class="unit">%</span></label><input id="pfMinGrossYield" type="text" inputmode="decimal"></div>
+        <div class="field"><label>物件単体CF 下限<span class="unit">円/年（税引前）</span></label><input id="pfMinAnnualCF" type="text" inputmode="numeric"></div>
+        <div class="field"><label>投入可能自己資金 上限<span class="unit">円</span></label><input id="pfMaxEquity" type="text" inputmode="numeric"></div>
+        <div class="field"><label>与信枠（借入上限）<span class="unit">円</span></label><input id="pfMaxLoan" type="text" inputmode="numeric"></div>
+        <div class="field"><label>融資期間≦残存耐用年数を確認</label>
+          <select id="pfCheckLoanVsLife"><option value="1">判定する</option><option value="">判定しない</option></select>
+          <div class="hint">プロパー移行・出口戦略の観点</div>
+        </div>
+      </div>
+      <div style="margin-top:12px"><button class="btn primary" id="saveProfileBtn">プロファイルを保存</button></div>
+    </div>
+
+    <div class="card">
+      <h2>適合判定シート<span class="sub">現在入力中の物件 × 選択中のプロファイル</span></h2>
+      <div id="matchSheet"><p class="notes">プロファイルを選択・保存すると判定を表示します。</p></div>
+      <div class="eval-section" style="margin-top:14px">
+        <h3>遵法性・エリア（手動チェック）</h3>
+        <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">
+          <label class="notes"><input type="checkbox" id="chkKenzumi"> 検査済証あり</label>
+          <label class="notes"><input type="checkbox" id="chkKakunin"> 建築確認通知書あり</label>
+          <label class="notes"><input type="checkbox" id="chkArea"> エリア条件に適合（駅距離等）</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>上限価格の逆算<span class="sub">指値の根拠に</span></h2>
+      <div id="reversePrice"><p class="notes">プロファイルの表面利回り下限・CF下限から計算します。</p></div>
+    </div>
   </section>
 
   <!-- ============ 出口戦略 ============ -->

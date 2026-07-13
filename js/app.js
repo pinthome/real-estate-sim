@@ -21,9 +21,11 @@
   const NUM_FIELDS = ['price','buildingPrice','age','loanAmount','loanYears','loanRate','costsAcq','costsExp',
     'rentMonthly','keyMoney','renewalFee','tenancyMonths','vacancyMonths','rentDeclineRate',
     'fixedCostTax','fixedCostMgmt','turnoverCost','repairAnnual','salary','corpEqualization',
-    'salePrice','salePriceDeclineRate'];
+    'salePrice','salePriceDeclineRate',
+    'unitsCount','grossAnnualRent','vacancyRatePct','otherIncomeAnnual','turnoverAnnualDirect','capexCycle','capexAmount'];
 
   let taxMode = 'personal';
+  let ptype = 'unit'; // 区分 / 一棟
   let lastResult = null;
 
   /* ---------- 入力の読み書き ---------- */
@@ -68,6 +70,13 @@
       corpEqualization: parseNum('corpEqualization') ?? 70000,
       salePrice: parseNum('salePrice') || 0,
       salePriceDeclineRate: (parseNum('salePriceDeclineRate') || 0) / 100,
+      propertyType: ptype,
+      grossAnnualRent: parseNum('grossAnnualRent') || 0,
+      vacancyRateDirect: (parseNum('vacancyRatePct') || 0) / 100,
+      otherIncomeAnnual: parseNum('otherIncomeAnnual') || 0,
+      turnoverAnnualDirect: parseNum('turnoverAnnualDirect') || 0,
+      capexCycle: parseNum('capexCycle') || 0,
+      capexAmount: parseNum('capexAmount') || 0,
       years: 35,
     };
     if (inp.deductions == null) delete inp.deductions;
@@ -81,6 +90,7 @@
     s.deductions = $('deductions').value;
     s.propertyName = $('propertyName').value;
     s.taxMode = taxMode;
+    s.ptype = ptype;
     localStorage.setItem('reSim', JSON.stringify(s));
   }
   function restoreState() {
@@ -92,6 +102,7 @@
       $('deductions').value = s.deductions || '';
       $('propertyName').value = s.propertyName || '';
       setTaxMode(s.taxMode || 'personal');
+      setPtype(s.ptype || 'unit');
       return true;
     } catch (e) { return false; }
   }
@@ -115,6 +126,81 @@
   }
   document.querySelectorAll('#taxModeSeg button').forEach(b =>
     b.addEventListener('click', () => { setTaxMode(b.dataset.mode); }));
+
+  /* ---------- 物件タイプ（区分/一棟） ---------- */
+  function setPtype(t) {
+    ptype = t;
+    document.querySelectorAll('#ptypeSeg button').forEach(b => b.classList.toggle('active', b.dataset.ptype === t));
+    document.querySelectorAll('[data-ptype]').forEach(el => {
+      if (el.closest('#ptypeSeg')) return;
+      el.style.display = el.dataset.ptype === t ? '' : 'none';
+    });
+    updateRemainingLifeHint();
+  }
+  document.querySelectorAll('#ptypeSeg button').forEach(b =>
+    b.addEventListener('click', () => { setPtype(b.dataset.ptype); }));
+
+  function updateRemainingLifeHint() {
+    const legal = Number($('structure').value);
+    const age = parseNum('age') || 0;
+    const remaining = Math.max(0, legal - age);
+    $('remainingLifeHint').textContent = `残存耐用年数: ${remaining}年（融資期間の目安）`;
+  }
+  $('structure').addEventListener('change', updateRemainingLifeHint);
+  $('age').addEventListener('input', updateRemainingLifeHint);
+
+  /* ---------- 融資プリセット ---------- */
+  function loadPresets() { try { return JSON.parse(localStorage.getItem('reSimLenders')) || []; } catch (e) { return []; } }
+  function savePresets(list) { localStorage.setItem('reSimLenders', JSON.stringify(list)); }
+  function renderPresetOptions() {
+    const list = loadPresets();
+    const sel = $('lenderPreset');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">（選択なし）</option>' +
+      list.map((p, i) => `<option value="${i}">${p.name}（${p.years}年・${p.rate}%・上限${Math.round(p.maxAmount / 10000).toLocaleString()}万円）</option>`).join('');
+    if (cur !== '' && list[cur]) sel.value = cur;
+  }
+  $('lenderPreset').addEventListener('change', () => {
+    const p = loadPresets()[$('lenderPreset').value];
+    if (!p) return;
+    setVal('loanYears', p.years); setVal('loanRate', p.rate);
+    renderLoanWarnings();
+  });
+  $('savePresetBtn').addEventListener('click', () => {
+    const name = prompt('プリセット名（金融機関名など）を入力してください', '');
+    if (!name) return;
+    const list = loadPresets();
+    const maxAmount = prompt('与信枠（借入上限額・円）を入力してください（不明なら空欄）', '');
+    list.push({ name, years: parseNum('loanYears') || 35, rate: parseNum('loanRate') || 2,
+                maxAmount: Number((maxAmount || '0').replace(/[,，\s]/g, '')) || 0 });
+    savePresets(list);
+    renderPresetOptions();
+    $('lenderPreset').value = String(list.length - 1);
+  });
+  $('deletePresetBtn').addEventListener('click', () => {
+    const i = $('lenderPreset').value;
+    if (i === '') return;
+    const list = loadPresets();
+    if (!confirm(`プリセット「${list[i].name}」を削除しますか？`)) return;
+    list.splice(Number(i), 1);
+    savePresets(list);
+    renderPresetOptions();
+  });
+  function renderLoanWarnings() {
+    const warnings = [];
+    const legal = Number($('structure').value);
+    const age = parseNum('age') || 0;
+    const remaining = Math.max(0, legal - age);
+    const loanYears = parseNum('loanYears') || 0;
+    if (loanYears > remaining) warnings.push(`⚠ 融資期間${loanYears}年が残存耐用年数${remaining}年を超えています。地銀プロパーへの借換えや出口（次の買主の融資）で不利になる可能性があります。`);
+    const p = loadPresets()[$('lenderPreset').value];
+    if (p && p.maxAmount > 0 && (parseNum('loanAmount') || 0) > p.maxAmount) {
+      warnings.push(`⚠ 借入額が「${p.name}」の与信枠 ${Math.round(p.maxAmount / 10000).toLocaleString()}万円 を超えています。`);
+    }
+    $('loanWarnings').innerHTML = warnings.map(w => `<div style="color:var(--s-red)">${w}</div>`).join('');
+  }
+  ['loanAmount', 'loanYears', 'age'].forEach(id => $(id).addEventListener('input', renderLoanWarnings));
+  $('structure').addEventListener('change', renderLoanWarnings);
 
   /* ---------- 諸費用自動概算 ---------- */
   $('estimateCostsBtn').addEventListener('click', () => {
@@ -141,6 +227,9 @@
     renderResult(lastResult);
     renderExit(lastResult);
     renderSens();
+    renderMatch();
+    renderLoanWarnings();
+    updateRemainingLifeHint();
     return lastResult;
   }
   $('runBtn').addEventListener('click', () => {
@@ -300,6 +389,117 @@
       }));
   }
 
+  /* ---------- 買主条件プロファイル・適合判定 ---------- */
+  const PF_FIELDS = ['pfName','pfPriceMin','pfPriceMax','pfRcMaxAge','pfSteelMaxAge','pfWoodMaxAge',
+                     'pfMinGrossYield','pfMinAnnualCF','pfMaxEquity','pfMaxLoan'];
+  function loadProfiles() { try { return JSON.parse(localStorage.getItem('reSimProfiles')) || []; } catch (e) { return []; } }
+  function saveProfiles(list) { localStorage.setItem('reSimProfiles', JSON.stringify(list)); }
+  function activeProfile() {
+    const i = $('profileSelect').value;
+    return i === '' ? null : loadProfiles()[Number(i)] || null;
+  }
+  function renderProfileOptions(selectIdx) {
+    const list = loadProfiles();
+    $('profileSelect').innerHTML = '<option value="">（プロファイル未選択）</option>' +
+      list.map((p, i) => `<option value="${i}">${p.name || '無題'}</option>`).join('');
+    if (selectIdx != null) $('profileSelect').value = String(selectIdx);
+  }
+  function profileToForm(p) {
+    $('pfName').value = p?.name || '';
+    setVal('pfPriceMin', p?.priceMin); setVal('pfPriceMax', p?.priceMax);
+    setVal('pfRcMaxAge', p?.rcMaxAge); setVal('pfSteelMaxAge', p?.steelMaxAge); setVal('pfWoodMaxAge', p?.woodMaxAge);
+    $('pfMinGrossYield').value = p?.minGrossYield != null ? (p.minGrossYield * 100) : '';
+    setVal('pfMinAnnualCF', p?.minAnnualCF); setVal('pfMaxEquity', p?.maxEquity); setVal('pfMaxLoan', p?.maxLoan);
+    $('pfCheckLoanVsLife').value = p?.checkLoanVsLife ? '1' : (p ? '' : '1');
+  }
+  function formToProfile() {
+    return {
+      name: $('pfName').value.trim() || '無題',
+      priceMin: parseNum('pfPriceMin'), priceMax: parseNum('pfPriceMax'),
+      rcMaxAge: parseNum('pfRcMaxAge'), steelMaxAge: parseNum('pfSteelMaxAge'), woodMaxAge: parseNum('pfWoodMaxAge'),
+      minGrossYield: parseNum('pfMinGrossYield') != null ? parseNum('pfMinGrossYield') / 100 : null,
+      minAnnualCF: parseNum('pfMinAnnualCF'), maxEquity: parseNum('pfMaxEquity'), maxLoan: parseNum('pfMaxLoan'),
+      checkLoanVsLife: $('pfCheckLoanVsLife').value === '1',
+    };
+  }
+  $('profileSelect').addEventListener('change', () => { profileToForm(activeProfile()); renderMatch(); });
+  $('newProfileBtn').addEventListener('click', () => { $('profileSelect').value = ''; profileToForm(null); });
+  $('saveProfileBtn').addEventListener('click', () => {
+    const list = loadProfiles();
+    const p = formToProfile();
+    const i = $('profileSelect').value;
+    if (i === '') { list.push(p); saveProfiles(list); renderProfileOptions(list.length - 1); }
+    else { list[Number(i)] = p; saveProfiles(list); renderProfileOptions(Number(i)); }
+    renderMatch();
+  });
+  $('deleteProfileBtn').addEventListener('click', () => {
+    const i = $('profileSelect').value;
+    if (i === '') return;
+    const list = loadProfiles();
+    if (!confirm(`プロファイル「${list[i].name}」を削除しますか？`)) return;
+    list.splice(Number(i), 1);
+    saveProfiles(list);
+    renderProfileOptions();
+    profileToForm(null);
+    renderMatch();
+  });
+
+  const MATCH_STATUS = { ok: '<span class="rating-chip rc-good">○ 適合</span>', ng: '<span class="rating-chip rc-poor">✕ 不適合</span>', na: '<span class="rating-chip rc-fair">− 条件なし</span>' };
+  function legalChecks() {
+    try { return JSON.parse(localStorage.getItem('reSimLegalChecks')) || {}; } catch (e) { return {}; }
+  }
+  ['chkKenzumi', 'chkKakunin', 'chkArea'].forEach(id => $(id).addEventListener('change', () => {
+    localStorage.setItem('reSimLegalChecks', JSON.stringify({
+      kenzumi: $('chkKenzumi').checked, kakunin: $('chkKakunin').checked, area: $('chkArea').checked,
+    }));
+    renderMatch();
+  }));
+
+  function matchTableHtml(match, forPrint) {
+    const cls = forPrint ? 'rp-table' : 'data';
+    return `<table class="${cls}"><thead><tr><th>判定</th><th>項目</th><th>お客様の条件</th><th>この物件</th></tr></thead><tbody>` +
+      match.items.map(i =>
+        `<tr><td class="l" style="text-align:left">${MATCH_STATUS[i.status]}</td><td class="l" style="text-align:left">${i.label}</td>` +
+        `<td class="l" style="text-align:left">${i.cond}</td><td>${i.actual}</td></tr>`).join('') +
+      '</tbody></table>';
+  }
+  function reversePriceHtml(r, p, forPrint) {
+    if (!p) return '';
+    const rows = [];
+    if (p.minGrossYield != null) {
+      const mp = Engine.maxPriceForYield(r.fullRent, p.minGrossYield);
+      if (mp != null) rows.push([`表面利回り ${(p.minGrossYield * 100).toFixed(1)}% を満たす上限価格`, man(mp)]);
+    }
+    if (p.minAnnualCF != null) {
+      const mp = Engine.maxPriceForCF(r.input, p.minAnnualCF);
+      rows.push([`物件単体CF ${fmt(p.minAnnualCF)}円/年 を満たす上限価格`, mp == null ? '価格を下げても達成困難' : man(mp)]);
+    }
+    if (!rows.length) return '';
+    const note = 'LTV・建物比率・諸費用率は現在の入力と同比率でスケールする前提の概算です。';
+    return `<div class="eval-section"><h3>上限価格の逆算（指値の参考）</h3><ul>` +
+      rows.map(([k, v]) => `<li>${k}：<b>${v}</b>${v.includes('円') && r.input.price ? `（現在価格 ${man(r.input.price)}）` : ''}</li>`).join('') +
+      `</ul><p class="${forPrint ? 'rp-notes' : 'notes'}">※ ${note}</p></div>`;
+  }
+  function renderMatch() {
+    if (!lastResult) return;
+    const p = activeProfile();
+    if (!p) {
+      $('matchSheet').innerHTML = '<p class="notes">プロファイルを選択・保存すると判定を表示します。</p>';
+      $('reversePrice').innerHTML = '<p class="notes">プロファイルの表面利回り下限・CF下限から計算します。</p>';
+      return;
+    }
+    const match = Engine.matchProfile(lastResult, p);
+    const c = legalChecks();
+    $('chkKenzumi').checked = !!c.kenzumi; $('chkKakunin').checked = !!c.kakunin; $('chkArea').checked = !!c.area;
+    const manualNote = (!c.kenzumi || !c.kakunin)
+      ? '<p class="notes" style="color:var(--s-red)">⚠ 検査済証・建築確認は「他行プロパー移行時の必須条件」です。未確認の場合は必ず取得状況を確認してください。</p>' : '';
+    $('matchSheet').innerHTML =
+      `<div class="eval-head"><div class="eval-grade g-${match.ngCount === 0 ? 'A' : match.ngCount <= 1 ? 'B' : 'D'}" style="font-size:15px;width:auto;padding:0 14px;height:44px">${match.verdict}</div>` +
+      `<div class="eval-sub">「${p.name}」の条件 ${match.okCount}項目適合 / ${match.ngCount}項目不適合</div></div>` +
+      matchTableHtml(match, false) + manualNote;
+    $('reversePrice').innerHTML = reversePriceHtml(lastResult, p, false) || '<p class="notes">プロファイルに表面利回り下限またはCF下限を設定すると表示されます。</p>';
+  }
+
   /* ---------- 出口戦略 ---------- */
   function renderExit(r) {
     const m = r.metrics;
@@ -402,15 +602,17 @@
     const dRent = Number($('sensRent').value);
     const dSale = Number($('sensSale').value);
     $('sensRateVal').textContent = `+${dRate.toFixed(1)}%`;
-    $('sensVacVal').textContent = `+${dVac}ヵ月`;
+    $('sensVacVal').textContent = ptype === 'building' ? `+${dVac}%` : `+${dVac}ヵ月`;
     $('sensRentVal').textContent = `+${dRent.toFixed(1)}%`;
     $('sensSaleVal').textContent = `${dSale >= 0 ? '+' : ''}${dSale}%`;
 
     const base = lastResult;
     const inp = currentInput();
-    const adjusted = Engine.simulate(Object.assign({}, inp, {
+    const vacOverride = ptype === 'building'
+      ? { vacancyRateDirect: Math.min(1, inp.vacancyRateDirect + dVac / 100) }
+      : { vacancyMonths: inp.vacancyMonths + dVac };
+    const adjusted = Engine.simulate(Object.assign({}, inp, vacOverride, {
       loanRate: inp.loanRate + dRate / 100,
-      vacancyMonths: inp.vacancyMonths + dVac,
       rentDeclineRate: inp.rentDeclineRate + dRent / 100,
       salePrice: inp.salePrice * (1 + dSale / 100),
     }));
@@ -548,6 +750,30 @@
       <div class="rp-footer">{{PAGE}}</div>
     </section>`;
 
+    // --- 適合判定ページ（プロファイル選択時のみ） ---
+    let pMatch = '';
+    const prof = activeProfile();
+    if (prof) {
+      const match = Engine.matchProfile(r, prof);
+      const c = legalChecks();
+      const chkRow = (label, v) => `<tr><td class="l" style="text-align:left">${v ? '<span class="rating-chip rc-good">○ 確認済</span>' : '<span class="rating-chip rc-caution">△ 要確認</span>'}</td><td class="l" style="text-align:left" colspan="3">${label}</td></tr>`;
+      pMatch = `<section class="rp-page">
+        ${rpHeader('ご希望条件との照合', name)}
+        <div class="eval-head"><div class="eval-grade g-${match.ngCount === 0 ? 'A' : match.ngCount <= 1 ? 'B' : 'D'}" style="font-size:13pt;width:auto;padding:0 12pt;height:40pt">${match.verdict}</div>
+        <div class="eval-sub">「${esc(prof.name)}」様のご希望条件 ${match.okCount}項目適合 / ${match.ngCount}項目不適合</div></div>
+        <div class="rp-h2">条件照合表</div>
+        ${matchTableHtml(match, true)}
+        <div class="rp-h2">遵法性・エリア</div>
+        <table class="rp-table"><tbody>
+          ${chkRow('検査済証あり（他行プロパー移行時の必須条件）', c.kenzumi)}
+          ${chkRow('建築確認通知書あり', c.kakunin)}
+          ${chkRow('エリア条件に適合（駅距離等）', c.area)}
+        </tbody></table>
+        ${reversePriceHtml(r, prof, true)}
+        <div class="rp-footer">{{PAGE}}</div>
+      </section>`;
+    }
+
     // --- 2枚目: CF・損益チャート ---
     const comments = [];
     comments.push(`初年度の税引後キャッシュフローは <b>${yen(Math.round(r.rows[0].atcf))}</b>（CCR ${m.ccr == null ? '—' : pct(m.ccr)}）。`);
@@ -629,7 +855,7 @@
     </section>`;
 
     let page = 0;
-    return [p1, pEval, p2, p3, p4, p5].map(p => p.replace('{{PAGE}}', String(++page))).join('');
+    return [p1, pEval, pMatch, p2, p3, p4, p5].filter(Boolean).map(p => p.replace('{{PAGE}}', String(++page))).join('');
   }
 
   $('pdfBtn').addEventListener('click', () => {
@@ -663,6 +889,7 @@
     const cond = [
       ['不動産投資 収益シミュレーション', ''],
       ['物件名称', name], ['作成日', reportDate()], ['課税区分', taxMode === 'personal' ? '個人' : '法人'],
+      ['物件タイプ', ptype === 'building' ? '一棟' : '区分'],
       [],
       ['物件価格（税込）', inp.price], ['うち建物価格', r.bldg], ['うち土地価格', r.land],
       ['築年数', inp.age], ['法定耐用年数', inp.legalLife], ['償却期間（簡便法）', r.usefulLife], ['償却率', r.depRate],
@@ -671,8 +898,11 @@
       ['取得諸費用（取得価額算入）', inp.costsAcq], ['取得諸費用（初年度費用）', inp.costsExp],
       ['総投資額', r.totalInvest], ['自己資金', r.equity],
       [],
-      ['月額家賃', inp.rentMonthly], ['礼金', inp.keyMoney], ['更新料', inp.renewalFee],
-      ['想定入居期間（ヵ月）', inp.tenancyMonths], ['想定空室期間（ヵ月）', inp.vacancyMonths],
+      ...(ptype === 'building'
+        ? [['満室想定年収', inp.grossAnnualRent], ['戸数', parseNum('unitsCount')], ['その他収入（年）', inp.otherIncomeAnnual],
+           ['入替・原状回復等（年）', inp.turnoverAnnualDirect], ['大規模修繕周期（年）', inp.capexCycle], ['大規模修繕額（円/回）', inp.capexAmount]]
+        : [['月額家賃', inp.rentMonthly], ['礼金', inp.keyMoney], ['更新料', inp.renewalFee],
+           ['想定入居期間（ヵ月）', inp.tenancyMonths], ['想定空室期間（ヵ月）', inp.vacancyMonths]]),
       ['想定空室率', r.vacancyRate], ['家賃下落率（年）', inp.rentDeclineRate],
       ['固定運営費（税・保険/年）', inp.fixedCostTax], ['固定運営費（管理等/月）', inp.fixedCostMgmt],
       ['入替コスト（円/回）', inp.turnoverCost], ['修繕費（円/年）', inp.repairAnnual],
@@ -717,7 +947,12 @@
   });
 
   /* ---------- 初期化 ---------- */
-  if (!restoreState()) loadDefaults(DEFAULTS);
+  if (!restoreState()) { loadDefaults(DEFAULTS); setPtype('unit'); }
+  renderPresetOptions();
+  renderProfileOptions();
+  profileToForm(null);
+  updateRemainingLifeHint();
+  { const c = legalChecks(); $('chkKenzumi').checked = !!c.kenzumi; $('chkKakunin').checked = !!c.kakunin; $('chkArea').checked = !!c.area; }
   // 諸費用タブの初期値を入力タブから引き継ぎ
   const price0 = parseNum('price') || 0, bldg0 = parseNum('buildingPrice') || 0;
   setVal('qcPrice', price0);

@@ -188,19 +188,28 @@ const Engine = (() => {
     const life = usefulLife(inp.legalLife || 22, inp.age || 0);
     const depSch = depreciationSchedule(bldgBase, life, Y);
 
-    // 収入パラメータ
-    const fullRent = (inp.rentMonthly || 0) * 12;
+    // 収入パラメータ（区分=入退去サイクルから算出 / 一棟=直接入力）
+    const isBuilding = inp.propertyType === 'building';
+    const fullRent = isBuilding ? (inp.grossAnnualRent || 0) : (inp.rentMonthly || 0) * 12;
     const cycle = (inp.tenancyMonths || 0) + (inp.vacancyMonths || 0);
-    const vacancyRate = cycle > 0 ? (inp.vacancyMonths || 0) / cycle : 0;
-    const renewCount = Math.min(10, Math.floor(Math.max(0, (inp.tenancyMonths || 0) - 1) / 24));
-    const keyMoneyAnnual = cycle > 0 ? (inp.keyMoney || 0) / cycle * 12 : 0;
-    const renewalAnnual = cycle > 0 ? (inp.renewalFee || 0) * renewCount / cycle * 12 : 0;
+    const vacancyRate = isBuilding
+      ? Math.max(0, Math.min(1, inp.vacancyRateDirect || 0))
+      : (cycle > 0 ? (inp.vacancyMonths || 0) / cycle : 0);
+    const renewCount = isBuilding ? 0 : Math.min(10, Math.floor(Math.max(0, (inp.tenancyMonths || 0) - 1) / 24));
+    const keyMoneyAnnual = isBuilding || cycle === 0 ? 0 : (inp.keyMoney || 0) / cycle * 12;
+    const renewalAnnual = isBuilding || cycle === 0 ? 0 : (inp.renewalFee || 0) * renewCount / cycle * 12;
+    const otherIncomeAnnual = isBuilding ? (inp.otherIncomeAnnual || 0) : keyMoneyAnnual + renewalAnnual;
 
     // 支出パラメータ
     const opexFixed = (inp.fixedCostTax || 0) + (inp.fixedCostMgmt || 0) * 12;
-    const turnoverAnnual = cycle > 0 ? (inp.turnoverCost || 0) / cycle * 12 : 0;
+    const turnoverAnnual = isBuilding
+      ? (inp.turnoverAnnualDirect || 0)
+      : (cycle > 0 ? (inp.turnoverCost || 0) / cycle * 12 : 0);
     const repairAnnual = inp.repairAnnual || 0;
     const opex = opexFixed + turnoverAnnual + repairAnnual;
+    // 大規模修繕（周期年ごとに支出・費用計上する単純化）
+    const capexCycle = Math.round(inp.capexCycle || 0);
+    const capexAmount = inp.capexAmount || 0;
 
     // 土地取得に充当された借入割合（建物先充当・納税者有利、上限は土地取得価額まで）
     const landLoanRatio = loan > 0 ? Math.min(Math.max(0, loan - bldgBase), landBase) / loan : 0;
@@ -226,14 +235,15 @@ const Engine = (() => {
     for (let t = 1; t <= Y; t++) {
       const declineFactor = Math.max(0, 1 - (inp.rentDeclineRate || 0) * (t - 1)); // 2年目から下落
       const effRent = fullRent * declineFactor;
-      const income = effRent * (1 - vacancyRate) + (keyMoneyAnnual + renewalAnnual) * declineFactor; // 礼金・更新料も家賃に連動
+      const income = effRent * (1 - vacancyRate) + otherIncomeAnnual * declineFactor; // 礼金等その他収入も家賃に連動
 
       const ls = loanSch[t - 1];
       const dep = depSch.dep[t - 1];
       const expFirstYear = t === 1 ? costsExp : 0;
+      const capex = capexCycle > 0 && capexAmount > 0 && t % capexCycle === 0 ? capexAmount : 0; // 大規模修繕
 
-      const cfBeforeTax = income - opex - ls.payment; // 諸費用・頭金は年0の自己資金に計上済み
-      const pl = income - opex - ls.interest - dep - expFirstYear; // 不動産所得(法人は課税所得ベース)
+      const cfBeforeTax = income - opex - capex - ls.payment; // 諸費用・頭金は年0の自己資金に計上済み
+      const pl = income - opex - capex - ls.interest - dep - expFirstYear; // 不動産所得(法人は課税所得ベース)
 
       // 欠損金の期限切れ(10年)を先に処理し、期首の繰越残高を記録
       lossPool = lossPool.filter(l => t - l.year <= 10);
@@ -269,7 +279,7 @@ const Engine = (() => {
       cumPL += pl;
 
       rows.push({
-        year: t, income, opex, debtService: ls.payment, principal: ls.principal,
+        year: t, income, opex: opex + capex, capex, debtService: ls.payment, principal: ls.principal,
         interest: ls.interest, loanBalance: ls.balance, depreciation: dep,
         bookValue: depSch.book[t - 1] + landBase,
         buildingBook: depSch.book[t - 1],
@@ -327,6 +337,7 @@ const Engine = (() => {
       input: inp,
       equity, totalInvest, loan, land, bldg, bldgBase, landBase,
       usefulLife: life, depRate: depSch.rate, landLoanRatio,
+      remainingLegalLife: Math.max(0, (inp.legalLife || 0) - (inp.age || 0)),
       vacancyRate, fullRent, renewCount,
       taxableSalaryOnly, baseTax,
       rows, exits,
@@ -496,6 +507,107 @@ const Engine = (() => {
              criteria, strengths, concerns, improvements, investorFit };
   }
 
+  /* ---------- 買主条件プロファイルとの適合判定 ---------- */
+  // profile: {name, priceMin, priceMax, rcMaxAge, steelMaxAge, woodMaxAge,
+  //           minGrossYield, minAnnualCF, maxEquity, maxLoan, checkLoanVsLife}
+  // 数値が未設定(null)の項目は「条件なし」として判定対象外(status:'na')。
+  function matchProfile(r, p) {
+    const inp = r.input;
+    const items = [];
+    const yen = v => Math.round(v).toLocaleString('ja-JP') + '円';
+    const pctf = v => (v * 100).toFixed(2) + '%';
+    const add = (label, cond, actual, ok) => items.push({ label, cond, actual, status: ok });
+
+    // 価格帯
+    if (p.priceMin != null || p.priceMax != null) {
+      const okMin = p.priceMin == null || inp.price >= p.priceMin;
+      const okMax = p.priceMax == null || inp.price <= p.priceMax;
+      add('価格帯',
+        `${p.priceMin != null ? yen(p.priceMin) : '下限なし'} 〜 ${p.priceMax != null ? yen(p.priceMax) : '上限なし'}`,
+        yen(inp.price), okMin && okMax ? 'ok' : 'ng');
+    } else add('価格帯', '条件なし', yen(inp.price), 'na');
+
+    // 構造×築年数（法定耐用年数で構造区分を推定: 40年以上=RC系 / 22年=木造 / その他=S造系）
+    const cat = (inp.legalLife || 0) >= 40 ? 'rc' : (inp.legalLife || 0) === 22 ? 'wood' : 'steel';
+    const catLabel = { rc: 'RC造', steel: 'S造（鉄骨）', wood: '木造' }[cat];
+    const maxAge = { rc: p.rcMaxAge, steel: p.steelMaxAge, wood: p.woodMaxAge }[cat];
+    if (maxAge != null) {
+      add(`築年数（${catLabel}）`, `築${maxAge}年以内`, `築${inp.age}年`, inp.age <= maxAge ? 'ok' : 'ng');
+    } else add(`築年数（${catLabel}）`, '条件なし', `築${inp.age}年`, 'na');
+
+    // 表面利回り
+    if (p.minGrossYield != null) {
+      add('表面利回り', `${pctf(p.minGrossYield)} 以上`, pctf(r.metrics.grossYield),
+        r.metrics.grossYield >= p.minGrossYield ? 'ok' : 'ng');
+    } else add('表面利回り', '条件なし', pctf(r.metrics.grossYield), 'na');
+
+    // 物件単体CF（税引前・2年目: 収入−運営費−返済。初年度は諸費用で歪むため2年目）
+    const y2 = r.rows[1] || r.rows[0];
+    const preTaxCF2 = y2.income - y2.opex - y2.debtService;
+    if (p.minAnnualCF != null) {
+      add('物件単体CF（税引前/年）', `${yen(p.minAnnualCF)} 以上`, yen(preTaxCF2),
+        preTaxCF2 >= p.minAnnualCF ? 'ok' : 'ng');
+    } else add('物件単体CF（税引前/年）', '条件なし', yen(preTaxCF2), 'na');
+
+    // 自己資金（頭金＋諸費用）
+    if (p.maxEquity != null) {
+      add('必要自己資金', `${yen(p.maxEquity)} 以内`, yen(r.equity),
+        r.equity <= p.maxEquity ? 'ok' : 'ng');
+    } else add('必要自己資金', '条件なし', yen(r.equity), 'na');
+
+    // 借入額（与信枠）
+    if (p.maxLoan != null) {
+      add('借入額（与信枠）', `${yen(p.maxLoan)} 以内`, yen(r.loan),
+        r.loan <= p.maxLoan ? 'ok' : 'ng');
+    } else add('借入額（与信枠）', '条件なし', yen(r.loan), 'na');
+
+    // 融資期間と残存耐用年数の整合（プロパー移行・出口戦略の観点）
+    if (p.checkLoanVsLife) {
+      add('融資期間 ≦ 残存耐用年数', `融資${inp.loanYears}年 ≦ 残存${r.remainingLegalLife}年`,
+        `残存耐用年数 ${r.remainingLegalLife}年`,
+        (inp.loanYears || 0) <= r.remainingLegalLife ? 'ok' : 'ng');
+    }
+
+    const ngCount = items.filter(i => i.status === 'ng').length;
+    const okCount = items.filter(i => i.status === 'ok').length;
+    const verdict = ngCount === 0 ? (okCount > 0 ? '適合' : '判定項目なし') :
+                    ngCount <= 1 ? '条件付き（1項目が不適合）' : `不適合（${ngCount}項目）`;
+    return { items, okCount, ngCount, verdict, preTaxCF2 };
+  }
+
+  /* ---------- 上限価格の逆算（指値の根拠） ---------- */
+  // 表面利回り下限から: 上限価格 = 満室年収 ÷ 下限利回り
+  function maxPriceForYield(fullRentAnnual, minYield) {
+    if (!minYield || minYield <= 0 || !fullRentAnnual) return null;
+    return fullRentAnnual / minYield;
+  }
+  // 目標CF（税引前・2年目）を満たす上限価格を二分法で逆算。
+  // LTV・建物比率・諸費用は現入力と同比率でスケールする前提。
+  function maxPriceForCF(inp, targetCF) {
+    if (!inp.price || inp.price <= 0) return null;
+    const ltv = (inp.loanAmount || 0) / inp.price;
+    const bratio = (inp.buildingPrice || 0) / inp.price;
+    const cfAt = f => {
+      const alt = simulate(Object.assign({}, inp, {
+        price: inp.price * f,
+        buildingPrice: inp.price * f * bratio,
+        loanAmount: inp.price * f * ltv,
+        costsAcq: (inp.costsAcq || 0) * f,
+        costsExp: (inp.costsExp || 0) * f,
+      }));
+      const y2 = alt.rows[1] || alt.rows[0];
+      return y2.income - y2.opex - y2.debtService;
+    };
+    let lo = 0.2, hi = 2.0;
+    if (cfAt(lo) < targetCF) return null;           // 価格を2割まで下げても届かない
+    if (cfAt(hi) >= targetCF) return inp.price * hi; // 2倍でも満たす（実質上限なし）
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (cfAt(mid) >= targetCF) lo = mid; else hi = mid;
+    }
+    return inp.price * lo;
+  }
+
   /* ---------- プロ向け詳細指標（ストレステスト含む） ---------- */
   function proMetrics(r) {
     const inp = r.input;
@@ -511,7 +623,11 @@ const Engine = (() => {
         stressRate = { dscr: alt.metrics.dscr, cf2: alt.rows[1] ? alt.rows[1].atcf : alt.rows[0].atcf,
                        irr: alt.metrics.bestExitIRR };
       }
-      const alt2 = simulate(Object.assign({}, inp, { rentMonthly: (inp.rentMonthly || 0) * 0.9 }));
+      const alt2 = simulate(Object.assign({}, inp, {
+        rentMonthly: (inp.rentMonthly || 0) * 0.9,
+        grossAnnualRent: (inp.grossAnnualRent || 0) * 0.9,
+        otherIncomeAnnual: (inp.otherIncomeAnnual || 0) * 0.9,
+      }));
       stressRent = { noiYield: alt2.metrics.noiYield, cf2: alt2.rows[1] ? alt2.rows[1].atcf : alt2.rows[0].atcf,
                      dscr: alt2.metrics.dscr };
     } catch (e) { /* ストレス計算失敗時はnullのまま */ }
@@ -533,7 +649,8 @@ const Engine = (() => {
   }
 
   return {
-    simulate, evaluate, proMetrics, amortize, usefulLife, straightLineRate, depreciationSchedule,
+    simulate, evaluate, proMetrics, matchProfile, maxPriceForYield, maxPriceForCF,
+    amortize, usefulLife, straightLineRate, depreciationSchedule,
     salaryDeduction, personalTax, corporateTax, transferTaxRate,
     brokerageFee, stampDutySale, stampDutyLoan, acquisitionCosts, computeIRR,
   };
