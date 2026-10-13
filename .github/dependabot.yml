@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # GitHub Actions を週1回まとめて更新する。メジャー更新は個別のPRにする。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
